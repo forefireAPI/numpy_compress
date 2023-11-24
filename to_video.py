@@ -12,6 +12,10 @@ import subprocess
 import os
 from PIL import Image
 import matplotlib.pyplot as plt
+
+
+nquant = np.iinfo(np.int16).max
+
 def dual_video_to_array(video_path_high, video_path_low, min_val, max_val ):
     def read_video(video_path):
         cap = cv2.VideoCapture(video_path)
@@ -56,7 +60,7 @@ def array_to_dual_video(input_array, output_path_high , output_path_low , fps=10
     # Normalisation et séparation des octets
     min_val = np.min(input_array)
     max_val = np.max(input_array)
-    normalized_array = np.int16((input_array - min_val )/ (max_val-min_val) * 32767)
+    normalized_array = np.int16((input_array - min_val )/ (max_val-min_val) * nquant)
     high_bytes = np.uint8(normalized_array >> 8)
     low_bytes = np.uint8(normalized_array & 0xFF)
 
@@ -100,6 +104,7 @@ def generate_sinusoidal_waves(time_frames, height, width, frequencies, speeds):
         result[t] = wave
 
     return result
+
 def plot_arrays(array1, array2, time_frame):
     """
     Fonction pour afficher deux images côte à côte avec une barre de couleur.
@@ -151,15 +156,17 @@ def check_error_compression(np_array, path_high, path_low):
     min_val = np.min(np_array)
     max_val = np.max(np_array)
     
-    array2 = dual_video_to_array(path_high, path_low, min_val=min_val, max_val=max_val)
+    array2 = dual_video_to_array(path_high, path_low, min_val, max_val)
     
     nk,nj,ni = array2.shape
     error_mean = np.sum(np.absolute(np_array-array2))/(nk*nj*ni) 
     
     plot_arrays(np_array, array2, 5)
         
-    normalized_array = np.int16((np_array - min_val )/ (max_val-min_val) * 32767)
-    denormalized = (normalized_array.astype(float) / np.iinfo(np.int16).max) * (max_val - min_val) + min_val
+    normalized_array = np.int16((np_array - min_val )/ (max_val-min_val) * nquant)
+    
+    denormalized = (normalized_array.astype(float) / nquant) * (max_val - min_val) + min_val
+    
     error_quant_mean = np.sum(np.absolute(np_array-denormalized))/(nk*nj*ni)
     # Affichage des résultats
     print(f"Taille du tableau NumPy original : {original_size} octets")
@@ -195,7 +202,7 @@ def plot_arrays_side_by_side(array1, array2, time_frame):
 
     plt.show()
 # Paramètres de l'exemple
-time_frames = 1000  # Nombre de trames temporelles
+time_frames = 100  # Nombre de trames temporelles
 height, width = 512, 512  # Dimensions spatiales
 frequencies = [1, 2, 3]  # Fréquences des ondes sinusoïdales
 speeds = [0.1, 0.2, 0.3]  # Vitesses de propagation des ondes
