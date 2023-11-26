@@ -1,5 +1,5 @@
 
-# Dual Video Compression and Analysis Tool
+# Numpy to video to numpy lossy compression and analysis 
 
 ## Overview
 This Python script provides a comprehensive solution for compressing numerical data into videos with loss, and subsequently reconstructing and analyzing the compressed data. It is especially useful in scenarios where high-precision numerical data needs to be stored and transmitted efficiently. compares with grib and netcdf.
