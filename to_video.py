@@ -14,8 +14,8 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import random
 import shutil
+import re
 
-nquant = np.iinfo(np.uint16).max
 def plot_byte_distributions(high_bytes, low_bytes, numVals=256):
     """
     Plot the distributions of values in high_bytes and low_bytes side by side.
@@ -40,92 +40,9 @@ def plot_byte_distributions(high_bytes, low_bytes, numVals=256):
 
     plt.tight_layout()
     plt.show()
-def dual_video_to_array(video_path_high, video_path_low, min_val, max_val ):
-    def read_video(video_path):
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"Impossible d'ouvrir la vidéo {video_path}")
-        
-        frames = []
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            frames.append(gray_frame)
-
-        cap.release()
-        return np.array(frames) 
-
-    # Lecture des vidéos
-    high_bytes  = read_video(video_path_high).astype(np.uint16) 
-    low_bytes  = read_video(video_path_low).astype(np.uint16) 
-    
-    # Vérification de la cohérence des dimensions
-    if high_bytes.shape != low_bytes.shape:
-        raise ValueError("Les vidéos d'octets forts et faibles ont des dimensions incohérentes")
-
-    # Recombinaison des octets forts et faibles
-    combined = (high_bytes << 8) | low_bytes
-    
-    combined = combined.astype(np.int16) 
-    scaled = (combined.astype(float) / nquant) * (max_val - min_val) + min_val
-    
-
-    scaled = np.clip(scaled, min_val, max_val)
-
-    # Conversion en XArray
-   # xarray_data = xr.DataArray(scaled, dims=["time", "Ni", "Nj"])
-    return scaled
- 
 
 
-
-def array_to_dual_video(input_array, output_path_high , output_path_low , fps=10):
-    # Création d'un dossier temporaire pour les images
-    if not os.path.exists('temp_images'):
-        os.makedirs('temp_images')
-
-    # Normalisation et séparation des octets
-    
-    min_val = np.min(input_array)
-    max_val = np.max(input_array)
-    normalized_array = np.int16((input_array - min_val )/ (max_val-min_val) * nquant)
-    high_bytes = np.uint8(normalized_array >> 8)
-    low_bytes = np.uint8(normalized_array & 0xFF)
-    
-    #plot_byte_distributions(high_bytes, low_bytes)
- 
-    # Création des images pour les octets forts et faibles
-    for i in range(input_array.shape[0]):
-        high_image = Image.fromarray(high_bytes[i], 'L')
-        low_image = Image.fromarray(low_bytes[i], 'L')
-        high_image.save(f'temp_images/high_{i:03d}.png')
-        low_image.save(f'temp_images/low_{i:03d}.png')
-
-    # Assemblage des images en vidéos avec FFmpeg
-    for output_path, image_prefix in zip([output_path_high, output_path_low], ['high', 'low']):
-        subprocess.run([
-            '/opt/homebrew/bin/ffmpeg','-y', '-framerate', str(fps), '-i', f'temp_images/{image_prefix}_%03d.png',
-            #'-hide_banner', '-loglevel','warning', '-nostats',
-            '-pix_fmt', 'gray', 
-            '-c:v', 'libx265', '-preset', 'slow', '-crf', '18',
-            #'-x265-params', 'pass=2', 
-            #'-x265-params', 'lossless=1' , '-x265-params', 'strong-intra-smoothing=0:rect=0',     # almost lossless
-            # '-crf', '10', '-x265-params', 'strong-intra-smoothing=0:rect=0',  # not lossles optimized
-           # '-crf', '42 ', # not lossles at all
-          #  '-c:v', 'libx265', '-preset', 'medium', '-pix_fmt', 'gray',
-         #   '-metadata', f'min_val={min_val}', '-metadata', f'max_val={max_val}',
-            output_path
-        ])
-
-    # Nettoyage des images temporaires
-    for file in os.listdir('temp_images'):
-        os.remove(os.path.join('temp_images', file))
-        
-    os.rmdir('temp_images')
-    return min_val, max_val
-def array_to_video(input_array, output_folder, frame_file='temp_frame.bin'):
+def array_to_video(input_array, output_folder, mode , frame_file='temp_frame.bin',ffmpegbin = '/opt/homebrew/bin/ffmpeg'):
     """
     Convert a 3D numpy array into a 12-bit grayscale video using FFmpeg,
     writing all frames to a single binary file.
@@ -138,8 +55,9 @@ def array_to_video(input_array, output_folder, frame_file='temp_frame.bin'):
     # Ensure the output folder exists
     os.makedirs(output_folder, exist_ok=True)
 
-    # Normalize to 12-bit
-    nquant = 2**12 - 1  # 4095 for 12-bit
+    bit_count = mode["bit_count"]
+    
+    nquant = 2**bit_count - 1  
     min_val = np.min(input_array)
     max_val = np.max(input_array)
     normalized_array = np.int16((input_array - min_val) / (max_val - min_val) * nquant)
@@ -154,99 +72,32 @@ def array_to_video(input_array, output_folder, frame_file='temp_frame.bin'):
             frame_bytes = frame.tobytes()  # Convert to raw bytes
             file.write(frame_bytes)
 
-    # Output video file with min and max values encoded in the filename
-    output_path = f"{output_folder}/video_min{min_val}_max{max_val}_fc{input_array.shape[0]}.mp4"
+    output_path = f"{output_folder}/video_min{min_val}_max{max_val}_fc{bit_count}.mp4"
 
-    # Define the FFmpeg command
     frame_size = f"{input_array.shape[2]}x{input_array.shape[1]}"  # width x height
-    ffmpeg_command = [
-        '/opt/homebrew/bin/ffmpeg',
+    
+  
+    fmpeg_start= [
+        ffmpegbin,
+        '-hide_banner', '-loglevel', 'error',
         '-f', 'rawvideo',
-        '-pixel_format', 'gray12le',
+        '-pixel_format', 'gray16',
         '-video_size', frame_size,
         '-framerate', '50',
         '-i', single_frame_file,
-        '-c:v', 'libx265',
-        '-preset', 'slow', '-crf', '18',
-       # '-x265-params', 'lossless=1',
-        '-pix_fmt', 'gray12le',
-        output_path
     ]
-
-    # Execute the FFmpeg command
+    
+    ffmpeg_command = fmpeg_start +  mode["ffmpeg_options"] + [output_path]
+   # print("Running : "," ".join(ffmpeg_commandXX) )
+    print("Expect : "," ".join(ffmpeg_command) )
     subprocess.run(ffmpeg_command, check=True)
 
     # Remove the single frame file
-   # os.remove(single_frame_file)
+    # os.remove(single_frame_file)
 
     return output_path
 
 
-def array_to_video_multibin(input_array, output_folder, frame_folder='temp_frames'):
-    """
-    Convert a 3D numpy array into a 12-bit grayscale video using FFmpeg.
-    
-    Parameters:
-    input_array (numpy.ndarray): The input 3D array.
-    output_folder (str): The folder to save the output video file.
-    frame_folder (str): Temporary folder to save the intermediate frame files.
-    """
-    # Ensure the output and frame folders exist
-    os.makedirs(output_folder, exist_ok=True)
-    os.makedirs(frame_folder, exist_ok=True)
-
-    # Normalize to 12-bit
-   
-    nquant = 2**12 - 1  # 4095 for 12-bit
-    
-    min_val = np.min(input_array)
-    max_val = np.max(input_array)
-    normalized_array = np.int16((input_array - min_val )/ (max_val-min_val) * nquant)
-    
- #   plot_byte_distributions(normalized_array, normalized_array,numVals=nquant)
-    # Saving 12-bit grayscale images as raw binary files
-    for i in range(input_array.shape[0]):
-        frame = normalized_array[i].astype(np.uint16)  # Ensure it's 16-bit
-        frame_bytes = frame.tobytes()  # Convert to raw bytes
-
-        with open(f'{frame_folder}/frame_{i:05d}.bin', 'wb') as file:
-            file.write(frame_bytes)
-
-    # Output video file with min and max values encoded in the filename
-    output_path = f"{output_folder}/video_min{min_val}_max{max_val}_fc{input_array.shape[0]}.mp4"
-
-    # Define the FFmpeg command
-    frame_size = f"{input_array.shape[2]}x{input_array.shape[1]}"  # width x height
-    ffmpeg_command = [
-        '/opt/homebrew/bin/ffmpeg',
-        '-y',
-        '-f', 'image2',
-        '-c:v', 'rawvideo',
-        '-pix_fmt', 'gray12le',
-        '-s:v', frame_size,
-        '-r', '50',
-        '-i', f'{frame_folder}/frame_%05d.bin',
-        '-c:v', 'libx265',
-        '-preset', 'slow', '-crf', '18',
-        '-pix_fmt', 'gray12le',
-       # '-x265-params', 'lossless=1',
-        output_path
-    ]
-
-    # Execute the FFmpeg command
-    subprocess.run(ffmpeg_command, check=True)
-
-
-    # Remove the temporary frame files
-    shutil.rmtree(frame_folder)
-    return output_path
-
-# Example usage
-# input_array = your 3D array
-# array_to_video(input_array, 'output_videos')
-
-import re
-import glob
 def video_to_array(video_path, frame_folder='temp_Vframes'):
     """
     Extract frames from a 12-bit grayscale video (stored in 16-bit format) using FFmpeg and load into a numpy array using OpenCV.
@@ -263,9 +114,9 @@ def video_to_array(video_path, frame_folder='temp_Vframes'):
     if match:
         min_val = float(match.group(1))
         max_val = float(match.group(2))
-        frame_count = int(match.group(3))
+        bit_count = int(match.group(3))
     else:
-        raise ValueError(f"Min, max values, and frame count could not be extracted from the filename: {video_path}")
+        raise ValueError(f"Min, max values, and bit count could not be extracted from the filename: {video_path}")
     
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -286,9 +137,10 @@ def video_to_array(video_path, frame_folder='temp_Vframes'):
     # Use FFmpeg to extract all frames to a single raw binary file
     ffmpeg_command = [
         'ffmpeg',
+        '-hide_banner', '-loglevel', 'error',
         '-i', video_path,
         '-f', 'rawvideo',
-        '-pix_fmt', 'gray16le',
+        '-pix_fmt', 'gray16',
         raw_frame_file
     ]
     subprocess.run(ffmpeg_command, check=True)
@@ -312,44 +164,6 @@ def video_to_array(video_path, frame_folder='temp_Vframes'):
     return array
 
 
-def generate_sinusoidal_wavestd_(time_frames, height, width, frequencies, speeds):
-    x = np.linspace(0, 2 * np.pi, width)
-    y = np.linspace(0, 2 * np.pi, height)
-    xv, yv = np.meshgrid(x, y)
-
-    result = np.zeros((time_frames, height, width))
-    for t in range(time_frames):
-        wave = np.zeros((height, width))
-        for freq, speed in zip(frequencies, speeds):
-            wave += np.sin(xv * freq + speed * t) + np.sin(yv * freq + speed * t)
-        result[t] = wave
-
-    return result
-
-def generate_sinusoidal_waves(time_frames, height, width, frequencies, speeds):
-    x = np.linspace(0, 2 * np.pi, width)
-    y = np.linspace(0, 2 * np.pi, height)
-    xv, yv = np.meshgrid(x, y)
-
-    directions = ['top_to_bottom', 'left_to_right', 'right_to_left', 'diagonal']
-    result = np.zeros((time_frames, height, width))
-
-    for t in range(time_frames):
-        wave = np.zeros((height, width))
-        for freq, speed in zip(frequencies, speeds):
-            direction = random.choice(directions)
-            if direction == 'top_to_bottom':
-                wave += np.sin(yv * freq + speed * t)
-            elif direction == 'left_to_right':
-                wave += np.sin(xv * freq + speed * t)
-            elif direction == 'right_to_left':
-                wave += np.sin(-xv * freq + speed * t)
-            elif direction == 'diagonal':
-                wave += np.sin(xv * freq + yv * freq + speed * t)
-            # Add more directions if needed
-        result[t] = wave
-
-    return result
 
 def plot_arrays(array1, array2, time_frame):
     """
@@ -414,14 +228,7 @@ def get_file_size(file_path):
     """ Renvoie la taille du fichier en octets """
     return os.path.getsize(file_path)
 
-def check_error_compression(np_array, v_pathes):
-    """
-    Compare la taille en mémoire d'un tableau NumPy avec la somme des tailles des fichiers de deux vidéos.
-    
-    :param np_array: Tableau NumPy à comparer.
-    :param path_high: Chemin du fichier vidéo pour les octets forts.
-    :param path_low: Chemin du fichier vidéo pour les octets faibles.
-    """
+def check_error_compression(np_array, np_arrayCOMRESSED, plot=False):
 
 
     # Taille du tableau NumPy original en mémoire
@@ -429,22 +236,7 @@ def check_error_compression(np_array, v_pathes):
     total_video_size = 0
     min_val = np.min(np_array)
     max_val = np.max(np_array)
-    array2 = None
-    # Taille des fichiers vidéo
-    if(len(v_pathes) == 2 ):
-        path_high,path_low = v_pathes
-        size_high = get_file_size(path_high)
-        size_low = get_file_size(path_low)
-        total_video_size = size_high + size_low
-        array2 = dual_video_to_array(path_high, path_low, min_val, max_val)
-    
-    else:
-        path_12 = v_pathes[0]
-        total_video_size = get_file_size(path_12)
-        array2 = video_to_array(v_pathes[0])
-        print(array2.shape)
-        
-    compression_ratio = original_size / total_video_size
+    array2 = np_arrayCOMRESSED
     
     nk,nj,ni = array2.shape
     error_all = np.absolute(np_array-array2)
@@ -463,25 +255,57 @@ def check_error_compression(np_array, v_pathes):
             max_error = current_frame_error_max
             max_error_frame = k
     
-
-    plot_error_spectrum(frame_errors )
-    nquant = 2**12-1
-    normalized_array = np.int16((np_array - min_val )/ (max_val-min_val) * nquant)
-    
-    denormalized = (normalized_array.astype(float) / nquant) * (max_val - min_val) + min_val
-    
-    error_quant_mean = np.sum(np.absolute(np_array-denormalized))/(nk*nj*ni)
-    # Affichage des résultats
-    print(f"Taille du tableau NumPy original : {original_size} octets")
-    print(f"Taille totale des fichiers vidéo : {total_video_size} octets")
-    print(f"Ratio de compression : {compression_ratio:.2f}")
+ 
+  
+ 
     print(f"Min : {min_val} Max : {max_val}")
     print(f"Erreur moy: {error_mean} mini {error_min}, max: {error_max}, relMax {error_max/(max_val-min_val)}")
-    print(f"Erreur moyenne dequantification : {error_quant_mean}")
     
-    plot_arrays(np_array, array2, max_error_frame)
-    plot_arrays(np_array, array2, int(nk/2))    
+    if plot:
+        plot_error_spectrum(frame_errors )
+        plot_arrays(np_array, array2, max_error_frame)
+    return error_mean/(max_val-min_val),error_max,error_max/(max_val-min_val)
+ #   plot_arrays(np_array, array2, int(nk/2))    
     
+def plot_results(result):
+    """
+    Plots error metrics and size ratios (both on a logarithmic scale) from the result dictionary.
+
+    :param result: Dictionary containing compression results.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Extracting data for plotting
+    keys = list(result.keys())
+    error_means = [result[key][0] for key in keys]
+    error_max = [result[key][1] for key in keys]
+    error_rel_max = [result[key][2] for key in keys]
+    np_size = result[keys[0]][3]  # Assuming np_size is same for all keys
+    video_sizes = [result[key][4] for key in keys]
+
+    # Size comparison with original NumPy array
+    np_size_ratios = [np_size / size for size in video_sizes]
+
+    # Plotting
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+
+    # Plotting Error Metrics on a logarithmic scale
+    ax1.semilogy(keys, error_means, label='Mean Error', marker='o', color='tab:blue')
+    ax1.semilogy(keys, error_max, label='Max Error', marker='o', color='tab:orange')
+    ax1.semilogy(keys, error_rel_max, label='Relative Max Error', marker='o', color='tab:green')
+    ax1.set_ylabel('Error (log scale)', color='tab:blue')
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
+    ax1.set_title('Error Metrics and Size Ratio (Log Scale)')
+    ax1.legend(loc='upper left')
+
+    # Creating a twin axis for size ratio (logarithmic scale)
+    ax2 = ax1.twinx()
+    ax2.bar(keys, np_size_ratios, alpha=0.3, color='tab:red')
+    ax2.set_yscale('log')
+    ax2.set_ylabel('Size Ratio (NumPy / Video) - Log Scale', color='tab:red')
+    ax2.tick_params(axis='y', labelcolor='tab:red')
+
     
 def super_frame(original_array, twoD_shape=( 720,1280)):
     # Create an empty array with the new shape
@@ -518,21 +342,6 @@ def super_frame(original_array, twoD_shape=( 720,1280)):
 
 import xarray as xr
 
-def array_to_grib(np_array, path):    
-    from cfgrib.xarray_to_grib import to_grib
-    nk,ni,nj = np_array.shape
-    for i in range(nk):
-        ds2 = xr.DataArray(
-             np_array[i,:,:],
-             coords=[
-                 np.linspace(90., -90., ni),
-                 np.linspace(0., 360., nj, endpoint=False),
-                 
-             ],
-             dims=['latitude', 'longitude'],
-             ).to_dataset(name='skin_temperature')
-        ds2.skin_temperature.attrs['GRIB_shortName'] = 'skt'
-        to_grib(ds2, f'{path}/out_{i:05d}.grib')
         
 def array_to_fgrib(np_array, path):    
     from cfgrib.xarray_to_grib import to_grib
@@ -553,31 +362,101 @@ def array_to_fgrib(np_array, path):
     to_grib(ds2, path)
 
 
-#dataset_path = "/Users/filippi_j/data/2023/prunelli/prunelli15020200809_l0_UVWTKE5000063000.nc"
-#ds = xr.open_dataset(dataset_path)
-#U = ds.U.data
+c_params = {
+    "veryhigh": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-c:v', 'libx265',
+            '-preset', 'slow',
+            '-crf', '38',
+            '-pix_fmt', 'gray16',
+        ]
+    },
+    "high": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-c:v', 'libx265',
+            '-preset', 'slow',
+            '-crf', '18',
+            '-pix_fmt', 'gray16',
+        ]
+    },
+    "normal": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-c:v', 'libx265',
+            '-preset', 'slow',
+            '-crf', '7',
+            '-pix_fmt', 'gray16',
+        ]
+    },
+    "low": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-c:v', 'libx265',
+            '-preset', 'slow',
+            '-crf', '0',
+            '-pix_fmt', 'gray16',
+        ]
+    },
+    "verylow": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-c:v', 'libx265',
+            '-preset', 'slow',
+            '-x265-params', 'lossless=1',
+            '-pix_fmt', 'gray16',
+        ]
+    },
+    "lossless": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-map', '0',
+            '-c:v', 'libopenjpeg',
+            '-c:a', 'copy',
+        ]
+    },
+}
 
-in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
-U = video_to_array(in_path)
-shutil.rmtree('test')
-check_error_compression(U,(array_to_video(U,'test'),))
 
-np_size = U.nbytes
-video_size = get_file_size(in_path)
-raw_byte_size =get_file_size('test/temp_frame.bin')
 
-print(f"Taille du tableau NumPy original {np_size/np_size}X : {np_size} octets ")
-print(f"Taille du fichier vidéo {np_size/video_size}X : {video_size} octets ")
-print(f"Taille brute à 2Bytes par valeur {np_size/raw_byte_size}X : {raw_byte_size}")
+dataset_path = "/Users/filippi_j/data/2023/prunelli/prunelli15020200809_l0_UVWTKE5000063000.nc"
+ds = xr.open_dataset(dataset_path)
+U = ds.TKE.data
 
-check_grib_nc = True
+#in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
+result = {}
+#U = video_to_array(in_path)
+for key in c_params.keys():  #['normal',] : #c_params.keys(): 
+    os.makedirs('test', exist_ok=True)
+    shutil.rmtree('test')
+    compressed_path = array_to_video(U,'test', c_params[key])
+    U_unpacked= video_to_array(compressed_path)            
+    error_mean,error_max,error_rel_max = check_error_compression(U,U_unpacked,plot=False)
+    np_size = U.nbytes
+    video_size = get_file_size(compressed_path)
+    raw_byte_size =get_file_size('test/temp_frame.bin')
+    result[key] = error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size
+    
+for key in result.keys():
+    error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size =result[key] 
+    
+    print(f"{key} REPORT")
+    print(f"{key} Erreur moy: {error_mean:.5f}, max: {error_max:.5f}, relMax {error_rel_max:.5f}")
+    print(f"{key} Taille du tableau NumPy original {np_size/np_size:.2f}X : {np_size} octets ")
+    print(f"{key} Taille du fichier vidéo {np_size/video_size:.2f}X : {video_size} octets ")
+    print(f"{key} Taille brute à 2Bytes par valeur {np_size/raw_byte_size:.2f}X : {raw_byte_size}")
+
+plot_results(result)
+
+check_grib_nc = False
 if check_grib_nc:
     array_to_fgrib(U,"gribAEC.grib")
     xr.DataArray(U, dims=["time", "nj", "ni"], name='U').to_dataset(name='U').to_netcdf('U_compressed_fp32.nc', encoding={'U': {'zlib': True, 'dtype': 'f4'}})    
     grib_size =  get_file_size("gribAEC.grib")
     netcdfz_size = get_file_size('U_compressed_fp32.nc')
-    print(f"Taille grib {np_size/grib_size}X : {grib_size}")
-    print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size}X : {netcdfz_size}")
+    print(f"Taille grib {np_size/grib_size:.2f}X : {grib_size}")
+    print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size:.2f}X : {netcdfz_size}")
 
 
 
