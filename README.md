@@ -2,13 +2,13 @@
 # Dual Video Compression and Analysis Tool
 
 ## Overview
-This Python script provides a comprehensive solution for compressing numerical data into dual videos with high and low bytes, and subsequently reconstructing and analyzing the compressed data. It is especially useful in scenarios where high-precision numerical data needs to be stored and transmitted efficiently.
+This Python script provides a comprehensive solution for compressing numerical data into videos with loss, and subsequently reconstructing and analyzing the compressed data. It is especially useful in scenarios where high-precision numerical data needs to be stored and transmitted efficiently. compares with grib and netcdf.
 
 ## Features
-- **Dual Video Compression**: Converts a 3D NumPy array into two separate videos representing high and low bytes of data.
-- **Data Reconstruction**: Reconstructs the original NumPy array from the dual videos.
+- ** Video Compression**: Converts a 3D NumPy array into 12bit videos representing data.
+- **Data Reconstruction**: Reconstructs the original NumPy array from the  videos.
 - **Error Analysis**: Calculates the average error and quantification error in the compression process.
-- **Visualization**: Generates and plots sinusoidal wave patterns for demonstration and testing purposes.
+- **Visualization**: Generates and plots for demonstration and testing purposes.
 
 ## Requirements
 To run this script, you need the following:
@@ -25,27 +25,39 @@ To run this script, you need the following:
 3. Install FFmpeg and ensure it's accessible from the command line.
 
 ## Usage
-1. **Dual Video Compression**:
-   - Use `array_to_dual_video(input_array, output_path_high, output_path_low)` to compress a 3D NumPy array into dual videos.
+1. **Video Compression**:
+   - Use `array_to_video(input_array, output_path_high, output_path_low)` to compress a 3D NumPy array into dual videos.
 
 2. **Data Reconstruction and Analysis**:
-   - Use `check_error_compression(np_array, path_high, path_low)` to reconstruct the NumPy array from the dual videos and analyze the error.
+   - Use `check_error_compression(np_array, (path_high)` to reconstruct the NumPy array from the videos and analyze the error.
 
-3. **Visualization**:
-   - Use `generate_sinusoidal_waves` to create a sinusoidal wave pattern for testing.
-   - The script also contains functions to plot arrays and compare them visually.
 
 ## Example
 ```python
-# Generate a sinusoidal wave pattern
-sinusoidal_array = generate_sinusoidal_waves(time_frames, height, width, frequencies, speeds)
+in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
+U = video_to_array(in_path)
 
-# Compress the generated array into dual videos
-array_to_dual_video(sinusoidal_array, 'Soutput_high.mp4', 'Soutput_low.mp4')
 
-# Analyze the compression and reconstruct the data
-print("SIN VALUES")
-check_error_compression(sinusoidal_array, 'Soutput_high.mp4', 'Soutput_low.mp4')
+
+U_xr = xr.DataArray(U, dims=["time", "nj", "ni"], name='U')
+shutil.rmtree('test')
+check_error_compression(U,(array_to_video(U,'test'),))
+
+
+array_to_fgrib(U,"gribAEC.grib")
+U_xr.to_dataset(name='U').to_netcdf('U_compressed_fp32.nc', encoding={'U': {'zlib': True, 'dtype': 'f4'}})
+
+np_size = U.nbytes
+video_size = get_file_size(in_path)
+raw_byte_size =get_file_size('test/temp_frame.bin')
+grib_size =  get_file_size("gribAEC.grib")
+netcdfz_size = get_file_size('U_compressed_fp32.nc')
+
+print(f"Taille du tableau NumPy original {np_size/np_size}X : {np_size} octets ")
+print(f"Taille du fichier vidéo {np_size/video_size}X : {video_size} octets ")
+print(f"Taille brute à 2Bytes par valeur {np_size/raw_byte_size}X : {raw_byte_size}")
+print(f"Taille grib {np_size/grib_size}X : {grib_size}")
+print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size}X : {netcdfz_size}")
 ```
 
 ## Author
