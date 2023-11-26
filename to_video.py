@@ -552,25 +552,33 @@ def array_to_fgrib(np_array, path):
     ds2.skin_temperature.attrs['packingType'] ='grid_ccsds'
     to_grib(ds2, path)
 
+
+#dataset_path = "/Users/filippi_j/data/2023/prunelli/prunelli15020200809_l0_UVWTKE5000063000.nc"
+#ds = xr.open_dataset(dataset_path)
+#U = ds.U.data
+
 in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
 U = video_to_array(in_path)
-
-U_xr = xr.DataArray(U, dims=["time", "nj", "ni"], name='U')
 shutil.rmtree('test')
 check_error_compression(U,(array_to_video(U,'test'),))
-
-
-array_to_fgrib(U,"gribAEC.grib")
-U_xr.to_dataset(name='U').to_netcdf('U_compressed_fp32.nc', encoding={'U': {'zlib': True, 'dtype': 'f4'}})
 
 np_size = U.nbytes
 video_size = get_file_size(in_path)
 raw_byte_size =get_file_size('test/temp_frame.bin')
-grib_size =  get_file_size("gribAEC.grib")
-netcdfz_size = get_file_size('U_compressed_fp32.nc')
 
 print(f"Taille du tableau NumPy original {np_size/np_size}X : {np_size} octets ")
 print(f"Taille du fichier vidéo {np_size/video_size}X : {video_size} octets ")
 print(f"Taille brute à 2Bytes par valeur {np_size/raw_byte_size}X : {raw_byte_size}")
-print(f"Taille grib {np_size/grib_size}X : {grib_size}")
-print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size}X : {netcdfz_size}")
+
+check_grib_nc = True
+if check_grib_nc:
+    array_to_fgrib(U,"gribAEC.grib")
+    xr.DataArray(U, dims=["time", "nj", "ni"], name='U').to_dataset(name='U').to_netcdf('U_compressed_fp32.nc', encoding={'U': {'zlib': True, 'dtype': 'f4'}})    
+    grib_size =  get_file_size("gribAEC.grib")
+    netcdfz_size = get_file_size('U_compressed_fp32.nc')
+    print(f"Taille grib {np_size/grib_size}X : {grib_size}")
+    print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size}X : {netcdfz_size}")
+
+
+
+
