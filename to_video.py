@@ -266,43 +266,41 @@ def video_to_array(video_path, frame_folder='temp_Vframes'):
         frame_count = int(match.group(3))
     else:
         raise ValueError(f"Min, max values, and frame count could not be extracted from the filename: {video_path}")
+    
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise IOError(f"Cannot open the video file: {video_path}")
+
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    cap.release()
+
 
     # Create the frame folder if it doesn't exist
     os.makedirs(frame_folder, exist_ok=True)
+    
+    raw_frame_file = os.path.join(frame_folder, 'all_frames.raw')
 
-    # Use FFmpeg to extract the frames in gray16le format
+    # Use FFmpeg to extract all frames to a single raw binary file
     ffmpeg_command = [
         'ffmpeg',
         '-i', video_path,
-        '-vsync', 'vfr',  # Variable frame rate to handle different frame rates
-        '-pix_fmt', 'gray16le',  # Ensure 16-bit grayscale format
-        os.path.join(frame_folder, 'frame_%05d.png')  # Save frames as PNG
+        '-f', 'rawvideo',
+        '-pix_fmt', 'gray16le',
+        raw_frame_file
     ]
     subprocess.run(ffmpeg_command, check=True)
 
-    # Find the starting frame number
-    frame_files = sorted(glob.glob(os.path.join(frame_folder, 'frame_*.png')))
-    if not frame_files:
-        raise ValueError(f"No frames were extracted from the video: {video_path}")
 
-    # Initialize a list to hold the frames
-    frames = []
-
-    # Read the frames using OpenCV
-    for frame_file in frame_files:
-        frame = cv2.imread(frame_file, cv2.IMREAD_UNCHANGED)
-
-        if frame is not None:
-            frames.append(frame)
-        else:
-            break
-
-    # Ensure we have the expected number of frames
-    if len(frames) != frame_count:
-        raise ValueError(f"Number of frames extracted ({len(frames)}) does not match expected frame count ({frame_count}).")
-
-    # Convert the list of frames to a 3D numpy array
-    array = np.stack(frames, axis=0)
+    # Read the entire file into a numpy array
+    frame_size = frame_width * frame_height * 2  # 2 bytes per pixel for 16-bit grayscale
+    total_size = frame_size * frame_count
+    
+    with open(raw_frame_file, 'rb') as file:
+        frame_data = file.read(total_size)
+        array = np.frombuffer(frame_data, dtype=np.uint16).reshape((frame_count, frame_height, frame_width))
 
     # Rescale the data back to its original scale
     array = array.astype(np.float64)
@@ -556,13 +554,14 @@ def array_to_fgrib(np_array, path):
 
 in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
 U = video_to_array(in_path)
-U_xr = xr.DataArray(U, dims=["time", "nj", "ni"])
-output_path = array_to_video(U,'test')
-check_error_compression(U,(output_path,))
+
+U_xr = xr.DataArray(U, dims=["time", "nj", "ni"], name='U')
+shutil.rmtree('test')
+check_error_compression(U,(array_to_video(U,'test'),))
+
+
 array_to_fgrib(U,"gribAEC.grib")
-U_da = xr.DataArray(U, dims=["time", "nj", "ni"], name='U')
-U_ds = U_da.to_dataset(name='U')
-U_ds.to_netcdf('U_compressed_fp32.nc', encoding={'U': {'zlib': True, 'dtype': 'f4'}})
+U_xr.to_dataset(name='U').to_netcdf('U_compressed_fp32.nc', encoding={'U': {'zlib': True, 'dtype': 'f4'}})
 
 np_size = U.nbytes
 video_size = get_file_size(in_path)
