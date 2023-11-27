@@ -1,35 +1,51 @@
 
-# Numpy to video to numpy lossy compression and analysis 
+# README for Python Video Compression and Analysis Tool
 
 ## Overview
-This Python script provides a comprehensive solution for compressing numerical data into videos with loss, and subsequently reconstructing and analyzing the compressed data. It is especially useful in scenarios where high-precision numerical data needs to be stored and transmitted efficiently. compares with grib and netcdf.
+This Python tool is designed for video compression and analysis of 3D numpy arrays. It focuses on converting numpy arrays into compressed video formats and vice versa, along with providing functions for analyzing the data before and after compression.
 
 ## Features
-- ** Video Compression**: Converts a 3D NumPy array into 12bit videos representing data.
-- **Data Reconstruction**: Reconstructs the original NumPy array from the  videos.
-- **Error Analysis**: Calculates the average error and quantification error in the compression process.
-- **Visualization**: Generates and plots for demonstration and testing purposes.
+1. **Array-to-Video Conversion:** Converts 3D numpy arrays to 12-bit grayscale videos using FFmpeg.
+2. **Video-to-Array Conversion:** Reverts the compressed videos back into numpy arrays.
+3. **Data Analysis Tools:** Includes functions for plotting byte distributions, comparing arrays, and visualizing error spectrums.
+4. **Support for Multiple Compression Formats:** Various compression settings ranging from very high to lossless compression.
+5. **Additional Data Processing Functions:** Includes capabilities like creating a 'super frame' and converting numpy arrays to different formats like GRIB and NetCDF.
 
 ## Requirements
-To run this script, you need the following:
-- Python 3
-- NumPy
-- OpenCV-Python (cv2)
-- Pillow (PIL)
-- Matplotlib
-- FFmpeg (Make sure it's installed and accessible in your system's PATH)
+- Python 3.x
+- Libraries: `cv2`, `numpy`, `matplotlib`, `PIL`, `shutil`, `re`, `xarray`, `cfgrib`
+- FFmpeg: Ensure FFmpeg is installed and accessible in the system path.
+- Optional: `libx265`, `libopenjpeg` for specific video codecs.
 
 ## Installation
-1. Ensure Python 3 is installed on your system.
-2. Install the required Python libraries: `numpy`, `opencv-python`, `Pillow`, and `matplotlib`.
-3. Install FFmpeg and ensure it's accessible from the command line.
+1. Install Python 3 and the required Python libraries. You can use pip for this:
+   ```bash
+   pip install opencv-python numpy matplotlib Pillow shutil regex xarray cfgrib
+   ```
+2. Install FFmpeg from [FFmpeg's official site](https://ffmpeg.org/download.html) and ensure it's added to your system's PATH.
 
 ## Usage
-1. **Video Compression**:
-   - Use `array_to_video(input_array, output_path_high, output_path_low)` to compress a 3D NumPy array into dual videos.
+1. **Converting an Array to Video:**
+   ```python
+   array_to_video(input_array, output_folder, mode)
+   ```
+   - `input_array`: 3D numpy array to be converted.
+   - `output_folder`: Destination folder for the output video.
+   - `mode`: Compression mode (e.g., 'high', 'low', etc.).
 
-2. **Data Reconstruction and Analysis**:
-   - Use `check_error_compression(np_array, (path_high)` to reconstruct the NumPy array from the videos and analyze the error.
+2. **Converting a Video to an Array:**
+   ```python
+   video_to_array(video_path)
+   ```
+   - `video_path`: Path to the input video file.
+
+3. **Analyzing Data:**
+   - Use functions like `plot_byte_distributions` and `plot_arrays` for visual analysis.
+
+4. **Data Conversion to GRIB or NetCDF:**
+   - Use `array_to_fgrib` for GRIB conversion.
+   - NetCDF conversion is demonstrated in the script.
+
 ## Result
 
 a compression report such as :
