@@ -303,7 +303,7 @@ def plot_results(result):
     ax2 = ax1.twinx()
     ax2.bar(keys, np_size_ratios, alpha=0.3, color='tab:red')
     ax2.set_yscale('log')
-    ax2.set_ylabel('Size Ratio (NumPy / Video) - Log Scale', color='tab:red')
+    ax2.set_ylabel('Compress Ratio (NumPy / Video) - Log Scale', color='tab:red')
     ax2.tick_params(axis='y', labelcolor='tab:red')
 
     
@@ -368,7 +368,7 @@ c_params = {
         "ffmpeg_options": [
             '-c:v', 'libx265',
             '-preset', 'slow',
-            '-crf', '38',
+            '-crf', '30',
             '-pix_fmt', 'gray16',
         ]
     },
@@ -386,7 +386,7 @@ c_params = {
         "ffmpeg_options": [
             '-c:v', 'libx265',
             '-preset', 'slow',
-            '-crf', '7',
+            '-crf', '9',
             '-pix_fmt', 'gray16',
         ]
     },
@@ -408,7 +408,7 @@ c_params = {
             '-pix_fmt', 'gray16',
         ]
     },
-    "lossless": {
+    "losslessJP2K": {
         "bit_count": 16,
         "ffmpeg_options": [
             '-map', '0',
@@ -420,14 +420,15 @@ c_params = {
 
 
 
-dataset_path = "/Users/filippi_j/data/2023/prunelli/prunelli15020200809_l0_UVWTKE5000063000.nc"
-ds = xr.open_dataset(dataset_path)
-U = ds.TKE.data
+#dataset_path = "/Users/filippi_j/data/2023/prunelli/prunelli15020200809_l0_UVWTKE5000063000.nc"
+#ds = xr.open_dataset(dataset_path)
+#U = np.sqrt(ds.U.data**2+ds.V.data**2+ds.W.data**2)
 
-#in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
+in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
+U = video_to_array(in_path)
+
 result = {}
-#U = video_to_array(in_path)
-for key in c_params.keys():  #['normal',] : #c_params.keys(): 
+for key in list(c_params.keys())[::1]:
     os.makedirs('test', exist_ok=True)
     shutil.rmtree('test')
     compressed_path = array_to_video(U,'test', c_params[key])

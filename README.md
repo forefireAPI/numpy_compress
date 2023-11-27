@@ -30,31 +30,50 @@ To run this script, you need the following:
 
 2. **Data Reconstruction and Analysis**:
    - Use `check_error_compression(np_array, (path_high)` to reconstruct the NumPy array from the videos and analyze the error.
+## Result
+
+a compression report such as :
+
+![compression image](https://github.com/forefireAPI/numpy_compress/raw/main/compress.png)
 
 
 ## Example
 ```python
 in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
 U = video_to_array(in_path)
-shutil.rmtree('test')
-check_error_compression(U,(array_to_video(U,'test'),))
 
-np_size = U.nbytes
-video_size = get_file_size(in_path)
-raw_byte_size =get_file_size('test/temp_frame.bin')
+result = {}
+for key in list(c_params.keys())[::1]:
+    os.makedirs('test', exist_ok=True)
+    shutil.rmtree('test')
+    compressed_path = array_to_video(U,'test', c_params[key])
+    U_unpacked= video_to_array(compressed_path)            
+    error_mean,error_max,error_rel_max = check_error_compression(U,U_unpacked,plot=False)
+    np_size = U.nbytes
+    video_size = get_file_size(compressed_path)
+    raw_byte_size =get_file_size('test/temp_frame.bin')
+    result[key] = error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size
+    
+for key in result.keys():
+    error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size =result[key] 
+    
+    print(f"{key} REPORT")
+    print(f"{key} Erreur moy: {error_mean:.5f}, max: {error_max:.5f}, relMax {error_rel_max:.5f}")
+    print(f"{key} Taille du tableau NumPy original {np_size/np_size:.2f}X : {np_size} octets ")
+    print(f"{key} Taille du fichier vidéo {np_size/video_size:.2f}X : {video_size} octets ")
+    print(f"{key} Taille brute à 2Bytes par valeur {np_size/raw_byte_size:.2f}X : {raw_byte_size}")
 
-print(f"Taille du tableau NumPy original {np_size/np_size}X : {np_size} octets ")
-print(f"Taille du fichier vidéo {np_size/video_size}X : {video_size} octets ")
-print(f"Taille brute à 2Bytes par valeur {np_size/raw_byte_size}X : {raw_byte_size}")
+plot_results(result)
 
-check_grib_nc = True
+check_grib_nc = False
 if check_grib_nc:
     array_to_fgrib(U,"gribAEC.grib")
     xr.DataArray(U, dims=["time", "nj", "ni"], name='U').to_dataset(name='U').to_netcdf('U_compressed_fp32.nc', encoding={'U': {'zlib': True, 'dtype': 'f4'}})    
     grib_size =  get_file_size("gribAEC.grib")
     netcdfz_size = get_file_size('U_compressed_fp32.nc')
-    print(f"Taille grib {np_size/grib_size}X : {grib_size}")
-    print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size}X : {netcdfz_size}")
+    print(f"Taille grib {np_size/grib_size:.2f}X : {grib_size}")
+    print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size:.2f}X : {netcdfz_size}")
+
 ```
 
 ## Author
