@@ -1,5 +1,5 @@
 
-# README for Python Video Compression and Analysis Tool
+# Python Video Compression and Analysis Tool
 
 ## Overview
 This Python tool is designed for video compression and analysis of 3D numpy arrays. It focuses on converting numpy arrays into compressed video formats and vice versa, along with providing functions for analyzing the data before and after compression.
