@@ -48,26 +48,35 @@ def array_to_video(input_array, output_folder, mode , frame_file='temp_frame.bin
 
     # Path for the single frame file
     single_frame_file = os.path.join(output_folder, frame_file)
+    rawfmt=np.uint16
+    pix_fmt = "gray16"
+    if bit_count == 12:
+        pix_fmt = "gray12le"
+    if bit_count == 10:
+        pix_fmt = "gray10le"
+    if bit_count == 8:
+        rawfmt=np.uint8
+        pix_fmt = "gray8"
 
     # Write all frames to a single binary file
     with open(single_frame_file, 'wb') as file:
         for i in range(input_array.shape[0]):
-            frame = normalized_array[i].astype(np.uint16)  # Ensure it's 16-bit
+            frame = normalized_array[i].astype(rawfmt)  # Ensure it's 16-bit
             frame_bytes = frame.tobytes()  # Convert to raw bytes
             file.write(frame_bytes)
 
     output_path = f"{output_folder}/video_min{min_val}_max{max_val}_fc{bit_count}.mp4"
 
     frame_size = f"{input_array.shape[2]}x{input_array.shape[1]}"  # width x height
-    
-  
+
+
     fmpeg_start= [
         ffmpegbin,
         '-hide_banner', '-loglevel', 'error',
         '-f', 'rawvideo',
-        '-pixel_format', 'gray16',
         '-video_size', frame_size,
-        '-framerate', '10',
+        '-framerate', '10', 
+        '-pixel_format', pix_fmt,  # explicitly tell FFmpeg it is 12-bit grayscale
         '-i', single_frame_file,
     ]
     
@@ -117,14 +126,22 @@ def video_to_array(video_path, frame_folder='temp_Vframes'):
     os.makedirs(frame_folder, exist_ok=True)
     
     raw_frame_file = os.path.join(frame_folder, 'all_frames.raw')
-
+    rawfmt=np.uint16
+    pix_fmt = "gray16"
+    if bit_count == 12:
+        pix_fmt = "gray12le"
+    if bit_count == 10:
+        pix_fmt = "gray10le"
+    if bit_count == 8:
+        rawfmt=np.uint8
+        pix_fmt = "gray8"
     # Use FFmpeg to extract all frames to a single raw binary file
     ffmpeg_command = [
         'ffmpeg',
         '-hide_banner', '-loglevel', 'error',
         '-i', video_path,
         '-f', 'rawvideo',
-        '-pix_fmt', 'gray16',
+        '-pix_fmt', pix_fmt,
         raw_frame_file
     ]
     subprocess.run(ffmpeg_command, check=True)
@@ -133,14 +150,15 @@ def video_to_array(video_path, frame_folder='temp_Vframes'):
     # Read the entire file into a numpy array
     frame_size = frame_width * frame_height * 2  # 2 bytes per pixel for 16-bit grayscale
     total_size = frame_size * frame_count
-    
+
     with open(raw_frame_file, 'rb') as file:
         frame_data = file.read(total_size)
-        array = np.frombuffer(frame_data, dtype=np.uint16).reshape((frame_count, frame_height, frame_width))
+        array = np.frombuffer(frame_data, dtype=rawfmt).reshape((frame_count, frame_height, frame_width))
 
     # Rescale the data back to its original scale
     array = array.astype(np.float64)
-    array = (array / (2**16 - 1)) * (max_val - min_val) + min_val
+
+    array = (array / (2**bit_count - 1)) * (max_val - min_val) + min_val
 
     # Cleanup: Remove the temporary frame files
     shutil.rmtree(frame_folder)
@@ -181,7 +199,7 @@ def plot_arrays(array1, array2, time_frame, plot, num_bins=100):
     fig.colorbar(img1, ax=ax1, fraction=0.046, pad=0.04)
     
     # RIGHT TOP: Difference image
-    diff = np.abs(array2[time_frame, :, :] - array1[time_frame, :, :])
+    diff = array2[time_frame, :, :] - array1[time_frame, :, :]
     ax2 = fig.add_subplot(gs[0, 1])
     img2 = ax2.imshow(diff, cmap='turbo')
     ax2.set_title(f"Config - {plot} Abs difference")
@@ -301,8 +319,8 @@ def plot_results(result):
     plt.savefig('plot.png', dpi=300)
 
     # Save the result dictionary to JSON
-    with open('result.json', 'w') as f:
-        json.dump(result, f, indent=4)
+    #with open('result.json', 'w') as f:
+    #    json.dump(result, f, indent=4)
 
 
     
@@ -330,48 +348,52 @@ def array_to_fgrib(np_array, path):
 
 c_params = {
     "extreme": {
-        "bit_count": 16,
+        "bit_count": 8,
         "ffmpeg_options": [
             '-c:v', 'libx265',
             '-preset', 'slow',
             '-crf', '51',
-            '-pix_fmt', 'gray16',
         ]
     },
     "max": {
-        "bit_count": 16,
+        "bit_count": 8,
         "ffmpeg_options": [
             '-c:v', 'libx265',
             '-preset', 'slow',
-            '-crf', '42',
-            '-pix_fmt', 'gray16',
+            '-crf', '32',
         ]
     },
     "vhigh": {
-        "bit_count": 16,
+        "bit_count": 10,
         "ffmpeg_options": [
             '-c:v', 'libx265',
             '-preset', 'slow',
-            '-crf', '28',
-            '-pix_fmt', 'gray16',
+            '-crf', '20',
+        ]
+    },   
+      "C4-JP2K": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-map', '0',
+            '-c:v', 'libopenjpeg',
+            '-compression_level', '4',
+            '-c:a', 'copy',
         ]
     },
     "high": {
-        "bit_count": 16,
+        "bit_count": 12,
         "ffmpeg_options": [
             '-c:v', 'libx265',
             '-preset', 'slow',
-            '-crf', '18',
-            '-pix_fmt', 'gray16',
+            '-crf', '15',
         ]
     },
     "avg": {
-        "bit_count": 16,
+        "bit_count": 12,
         "ffmpeg_options": [
             '-c:v', 'libx265',
             '-preset', 'slow',
-            '-crf', '9',
-            '-pix_fmt', 'gray16',
+            '-crf', '8',
         ]
     },
     "low": {
@@ -380,28 +402,18 @@ c_params = {
             '-c:v', 'libx265',
             '-preset', 'slow',
             '-crf', '0',
-            '-pix_fmt', 'gray16',
         ]
     },
     "vlow": {
         "bit_count": 16,
         "ffmpeg_options": [
             '-c:v', 'libx265',
-            '-preset', 'slow',
+            '-preset', 'veryslow',
             '-x265-params', 'lossless=1',
-            '-pix_fmt', 'gray16',
         ]
     },
-    "JP2K": {
-        "bit_count": 16,
-        "ffmpeg_options": [
-            '-map', '0',
-            '-c:v', 'libopenjpeg',
-            '-compression_level', '5',
-            '-c:a', 'copy',
-        ]
-    },
-    "llJP2K": {
+
+    "LL-JP2K": {
         "bit_count": 16,
         "ffmpeg_options": [
             '-map', '0',
@@ -417,27 +429,48 @@ dataset_path = "data/V_prunelli_fire.nc"
 ds = xr.open_dataset(dataset_path)
 print(ds)
 #U = np.sqrt(ds.U.data**2+ds.V.data**2+ds.W.data**2)
-V =  ds.V.data
+V =  ds.V.data#[:1300,:,:]
 
 #in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
 #U = video_to_array(in_path)
 result = {}
 
-
-for key in list(c_params.keys())[::1]:
-    testDir = f"{key}_output"
-    os.makedirs(testDir, exist_ok=True)
-    shutil.rmtree(testDir)
-    compressed_path = array_to_video(V,testDir, c_params[key])
-    V_unpacked= video_to_array(compressed_path)
-    midFrame = int(np.shape(V_unpacked)[0]/2)
-
-    error_mean,error_max,error_rel_max = check_error_compression(V,V_unpacked,plot=key)
+check_resolution_nc = True
+if check_resolution_nc:
+    import scipy.ndimage as ndimage
+    zoom_factors = (2, 2, 2)
+    Vsub=V[::2,::2,::2]
+    key = "halfResZ"
+    xr.DataArray(Vsub, dims=["time", "nj", "ni"], name='V') \
+  .to_dataset(name='V') \
+  .to_netcdf('V_subsampled_fp32.nc', encoding={'V': {'zlib': True,
+                                                      'complevel': 9,
+                                                      'shuffle': True,
+                                                      'dtype': 'f4'}})
+    video_size = get_file_size("V_subsampled_fp32.nc")
+    
+    Vsupersampled = ndimage.zoom(Vsub, zoom=zoom_factors, order=1)
+    error_mean,error_max,error_rel_max = check_error_compression(V,Vsupersampled,plot=key)
     np_size = V.nbytes
-    video_size = get_file_size(compressed_path)
-    raw_byte_size =get_file_size(f"{testDir}/temp_frame.bin")
+    
     result[key] = {}
-    result[key]["Errors"] = error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size
+    result[key]["Errors"] = error_mean,error_max,error_rel_max, np_size,video_size,np_size
+
+check_compress_nc = True
+if check_compress_nc:
+    for key in list(c_params.keys())[::1]:
+        testDir = f"{key}_output"
+        os.makedirs(testDir, exist_ok=True)
+        shutil.rmtree(testDir)
+        compressed_path = array_to_video(V,testDir, c_params[key])
+        V_unpacked= video_to_array(compressed_path)
+        
+        error_mean,error_max,error_rel_max = check_error_compression(V,V_unpacked,plot=key)
+        np_size = V.nbytes
+        video_size = get_file_size(compressed_path)
+        raw_byte_size =get_file_size(f"{testDir}/temp_frame.bin")
+        result[key] = {}
+        result[key]["Errors"] = error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size
 
 check_grib_nc = True
 if check_grib_nc:
