@@ -15,31 +15,15 @@ import matplotlib.pyplot as plt
 import random
 import shutil
 import re
-
-def plot_byte_distributions(high_bytes, low_bytes, numVals=256):
-    """
-    Plot the distributions of values in high_bytes and low_bytes side by side.
-    
-    Parameters:
-    high_bytes (numpy.ndarray): The high byte values.
-    low_bytes (numpy.ndarray): The low byte values.
-    """
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-    # Plotting the distribution of high_bytes
-    axes[0].hist(high_bytes.ravel(), bins=numVals, range=(0, numVals), color='blue', alpha=0.7)
-    axes[0].set_title('High Byte Distribution')
-    axes[0].set_xlabel('Value')
-    axes[0].set_ylabel('Frequency')
-
-    # Plotting the distribution of low_bytes
-    axes[1].hist(low_bytes.ravel(), bins=numVals, range=(0, numVals), color='green', alpha=0.7)
-    axes[1].set_title('Low Byte Distribution')
-    axes[1].set_xlabel('Value')
-    axes[1].set_ylabel('Frequency')
-
-    plt.tight_layout()
-    plt.show()
+import xarray as xr
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+import json
+import seaborn as sns
 
 
 def array_to_video(input_array, output_folder, mode , frame_file='temp_frame.bin',ffmpegbin = '/opt/homebrew/bin/ffmpeg'):
@@ -83,7 +67,7 @@ def array_to_video(input_array, output_folder, mode , frame_file='temp_frame.bin
         '-f', 'rawvideo',
         '-pixel_format', 'gray16',
         '-video_size', frame_size,
-        '-framerate', '50',
+        '-framerate', '10',
         '-i', single_frame_file,
     ]
     
@@ -163,72 +147,69 @@ def video_to_array(video_path, frame_folder='temp_Vframes'):
 
     return array
 
+def plot_arrays(array1, array2, time_frame, plot, num_bins=100):
+    """
+    Display two images side by side, with an error spectrum histogram below the right image.
+    The right column (difference image and error spectrum) is smaller than the left image.
+    The error spectrum is raised to roughly align with the bottom of the left image.
+
+    :param array1: First 3D numpy array (time_frames, height, width)
+    :param array2: Second 3D numpy array (time_frames, height, width)
+    :param time_frame: Index of the time frame to display
+    :param plot: Identifier or title string used in plot titles and filenames
+    :param num_bins: Number of bins for the error histogram (default is 100)
+    """
 
 
-def plot_arrays(array1, array2, time_frame):
-    """
-    Fonction pour afficher deux images côte à côte avec une barre de couleur.
-
-    :param array1: Premier tableau numpy 3D (time_frames, height, width)
-    :param array2: Deuxième tableau numpy 3D (time_frames, height, width)
-    :param time_frame: Index de la trame temporelle à afficher
-    """
-    """
-    Fonction pour afficher deux images côte à côte.
-
-    :param array1: Premier tableau numpy 3D (time_frames, height, width)
-    :param array2: Deuxième tableau numpy 3D (time_frames, height, width)
-    :param time_frame: Index de la trame temporelle à afficher
-    """
-    plt.figure(figsize=(12, 6))
-    nk,nj,ni = array2.shape
+    sns.set_theme(style="whitegrid", context="talk", palette="muted")
+    
+    # Create a figure with GridSpec: left column larger than right.
+    # Adjust height_ratios in the right column so that the error spectrum is compressed.
+    fig = plt.figure(figsize=(12, 8))
+    gs = gridspec.GridSpec(2, 2, height_ratios=[3, 0.5], width_ratios=[2, 1])
+    
+    # LEFT IMAGE: Combined view from array1 and array2 (spans both rows in left column)
+    nk, nj, ni = array2.shape
     V = np.array(array2[time_frame, :, :])
-    jhalf = int(nj/2)
-    V[:jhalf,:] = array2[time_frame, :jhalf, :]
-    V[jhalf,:] = np.max(V)
+    jhalf = int(nj / 2)
+    V[:jhalf, :] = array1[time_frame, jhalf:, :]
     
-    # Affichage de la trame de array1
-    ax1 = plt.subplot(1, 2, 1)
-    img1 = ax1.imshow(V, cmap='gray')
-    #img1 = ax1.imshow(array1[time_frame, :, :], cmap='gray')
-   
-    plt.title(f"Semi Image des 2 arrays indice {time_frame}")
-    plt.axis('off')
-    plt.colorbar(img1, ax=ax1, fraction=0.046, pad=0.04)
-
-    # Affichage de la trame de array2
-    ax2 = plt.subplot(1, 2, 2) 
-    img2 = ax2.imshow(np.absolute(array2[time_frame, :, :]-array1[time_frame, :, :]), cmap='gray')
-    #img2 = ax2.imshow(array2[time_frame, :, :], cmap='gray')
-   
-    plt.title(f"Difference en valeur absolue des 2 arrays indice {time_frame}")
-    plt.axis('off')
-    plt.colorbar(img2, ax=ax2, fraction=0.046, pad=0.04)
-
-
-def plot_error_spectrum(frame_errors, num_bins=100):
-    """
-    Plot the spectrum of max frame errors.
-
-    :param frame_errors: Array of maximum errors for each frame.
-    :param bin_size: Size of the bins for quantization.
-    """
-    # Quantizing the errors
-    bins = np.linspace(start=frame_errors.min(), stop=frame_errors.max(), num=num_bins)
+    ax1 = fig.add_subplot(gs[:, 0])
+    img1 = ax1.imshow(V, cmap='turbo')
+    ax1.set_title(f"Raw(top)/Compressed - frame: {time_frame}")
+    ax1.axis('off')
+    fig.colorbar(img1, ax=ax1, fraction=0.046, pad=0.04)
     
-    plt.hist(frame_errors, bins=bins, edgecolor='black', log=True)
+    # RIGHT TOP: Difference image
+    diff = np.abs(array2[time_frame, :, :] - array1[time_frame, :, :])
+    ax2 = fig.add_subplot(gs[0, 1])
+    img2 = ax2.imshow(diff, cmap='turbo')
+    ax2.set_title(f"Config - {plot} Abs difference")
+    ax2.axis('off')
+    fig.colorbar(img2, ax=ax2, fraction=0.046, pad=0.04)
+    
+    # RIGHT BOTTOM: Error spectrum histogram
+    ax3 = fig.add_subplot(gs[1, 1])
+    bins = np.linspace(diff.min(), diff.max(), num_bins)
+    ax3.hist(diff.flatten(), bins=bins, edgecolor='black', log=True)
+    ax3.set_xlabel('Error Magnitude', fontsize=9)
+    ax3.set_ylabel('Frequency', fontsize=9)
+    ax3.set_title("Error Spectrum", fontsize=10)
+    
+    # Adjust tick label sizes to avoid overlaps.
+    ax3.tick_params(axis='x', labelsize=8)
+    ax3.tick_params(axis='y', labelsize=8)
+    
+    # Adjust layout: add extra padding to avoid label overlapping.
+    plt.tight_layout(pad=2.0)
+    plt.savefig(f"{plot}_images.png", dpi=300)
 
-    plt.xlabel('Error Magnitude')
-    plt.ylabel('Frequency')
-    plt.title('Spectrum of max errors in each step')
-    plt.grid(True)
-    plt.show()
     
 def get_file_size(file_path):
     """ Renvoie la taille du fichier en octets """
     return os.path.getsize(file_path)
 
-def check_error_compression(np_array, np_arrayCOMRESSED, plot=False):
+def check_error_compression(np_array, np_arrayCOMRESSED, plot=None):
 
 
     # Taille du tableau NumPy original en mémoire
@@ -261,86 +242,71 @@ def check_error_compression(np_array, np_arrayCOMRESSED, plot=False):
     print(f"Min : {min_val} Max : {max_val}")
     print(f"Erreur moy: {error_mean} mini {error_min}, max: {error_max}, relMax {error_max/(max_val-min_val)}")
     
-    if plot:
-        plot_error_spectrum(frame_errors )
-        plot_arrays(np_array, array2, max_error_frame)
+    if plot is not None:
+      #  plot_error_spectrum(frame_errors, plot )
+        plot_arrays(np_array, array2, 100, plot)
     return error_mean/(max_val-min_val),error_max,error_max/(max_val-min_val)
  #   plot_arrays(np_array, array2, int(nk/2))    
-    
+ 
 def plot_results(result):
     """
-    Plots error metrics and size ratios (both on a logarithmic scale) from the result dictionary.
+    Plots error metrics and size ratios (both on a logarithmic scale) from the result dictionary,
+    using a refined style and displaying crisp compression ratios on each bar.
 
     :param result: Dictionary containing compression results.
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
+
+    # Use seaborn style for a more refined look
+    sns.set_theme(style="whitegrid", context="talk", palette="muted")
 
     # Extracting data for plotting
     keys = list(result.keys())
-    error_means = [result[key][0] for key in keys]
-    error_max = [result[key][1] for key in keys]
-    error_rel_max = [result[key][2] for key in keys]
-    np_size = result[keys[0]][3]  # Assuming np_size is same for all keys
-    video_sizes = [result[key][4] for key in keys]
+    error_means = [result[key]["Errors"][0] for key in keys]
+    error_max = [result[key]["Errors"][1] for key in keys]
+    error_rel_max = [result[key]["Errors"][2] for key in keys]
+    np_size = result[keys[0]]["Errors"][3]  # Assuming np_size is same for all keys
+    video_sizes = [result[key]["Errors"][4] for key in keys]
 
     # Size comparison with original NumPy array
     np_size_ratios = [np_size / size for size in video_sizes]
 
-    # Plotting
-    fig, ax1 = plt.subplots(figsize=(10, 6))
+    # Create the figure and first axis for error metrics
+    fig, ax1 = plt.subplots(figsize=(15, 6))
 
-    # Plotting Error Metrics on a logarithmic scale
-    ax1.semilogy(keys, error_means, label='Mean Error', marker='o', color='tab:blue')
-    ax1.semilogy(keys, error_max, label='Max Error', marker='o', color='tab:orange')
-    ax1.semilogy(keys, error_rel_max, label='Relative Max Error', marker='o', color='tab:green')
-    ax1.set_ylabel('Error (log scale)', color='tab:blue')
+    # Plot error metrics on a logarithmic scale
+    ax1.semilogy(keys, error_means, label='Mean Error', marker='o', color='tab:blue', linewidth=2)
+    ax1.semilogy(keys, error_max, label='Max Error', marker='o', color='tab:orange', linewidth=2)
+    ax1.semilogy(keys, error_rel_max, label='Relative Max Error', marker='o', color='tab:green', linewidth=2)
+    ax1.set_ylabel('Error (Log Scale)', fontsize=14, color='tab:blue')
     ax1.tick_params(axis='y', labelcolor='tab:blue')
-    ax1.set_title('Error Metrics and Size Ratio (Log Scale)')
-    ax1.legend(loc='upper left')
+    ax1.set_title('Error Metrics and Compression Ratio', fontsize=16, pad=15)
+    ax1.legend(loc='upper right', fontsize=12)
 
-    # Creating a twin axis for size ratio (logarithmic scale)
+    # Create a twin axis for compression ratio (size ratios)
     ax2 = ax1.twinx()
-    ax2.bar(keys, np_size_ratios, alpha=0.3, color='tab:red')
+    bars = ax2.bar(keys, np_size_ratios, alpha=0.5, color='tab:red', width=0.5)
     ax2.set_yscale('log')
-    ax2.set_ylabel('Compress Ratio (NumPy / Video) - Log Scale', color='tab:red')
+    ax2.set_ylabel('Compression Ratio (NumPy / Video) - Log Scale', fontsize=14, color='tab:red')
     ax2.tick_params(axis='y', labelcolor='tab:red')
 
+    # Annotate each bar with the integer compression ratio followed by 'X'
+    for bar in bars:
+        height = bar.get_height()
+        # Convert height to integer compression ratio
+        text = f"{round(height, 1):.1f}X"
+        ax2.text(bar.get_x() + bar.get_width() / 2, height,
+                 text, ha='center', va='bottom', fontsize=12, color='black', fontweight='bold')
+
+    plt.tight_layout()
+    plt.savefig('plot.png', dpi=300)
+
+    # Save the result dictionary to JSON
+    with open('result.json', 'w') as f:
+        json.dump(result, f, indent=4)
+
+
     
-def super_frame(original_array, twoD_shape=( 720,1280)):
-    # Create an empty array with the new shape
-    nk, _, _ = original_array.shape
-    nj, ni = twoD_shape
-    new_shape = (nk, nj, ni)
-    super_framed_array = np.zeros(new_shape, dtype=original_array.dtype)
 
-    # Define the size of the original patch
-    original_patch_size = original_array.shape[1:]
-
-    # Loop through the new array in steps of the original patch size
-    for i in range(0, new_shape[1], original_patch_size[0]):
-        for j in range(0, new_shape[2], original_patch_size[1]):
-            # Determine the type of patch to use based on the position
-            if (i // original_patch_size[0]) % 2 == 0:
-                if (j // original_patch_size[1]) % 2 == 0:
-                    patch = original_array
-                else:
-                    patch = original_array[:, :, ::-1]  # Horizontal symmetry
-            else:
-                if (j // original_patch_size[1]) % 2 == 0:
-                    patch = original_array[:, ::-1, :]  # Vertical symmetry
-                else:
-                    patch = original_array[:, ::-1, ::-1]  # Both horizontal and vertical symmetry
-
-            # Adjust the patch size to fit within the bounds of the new array
-            end_i = min(i + original_patch_size[0], new_shape[1])
-            end_j = min(j + original_patch_size[1], new_shape[2])
-            super_framed_array[:, i:end_i, j:end_j] = patch[:, :end_i - i, :end_j - j]
-
-    return super_framed_array
-
-
-import xarray as xr
 
         
 def array_to_fgrib(np_array, path):    
@@ -363,12 +329,30 @@ def array_to_fgrib(np_array, path):
 
 
 c_params = {
-    "veryhigh": {
+    "extreme": {
         "bit_count": 16,
         "ffmpeg_options": [
             '-c:v', 'libx265',
             '-preset', 'slow',
-            '-crf', '30',
+            '-crf', '51',
+            '-pix_fmt', 'gray16',
+        ]
+    },
+    "max": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-c:v', 'libx265',
+            '-preset', 'slow',
+            '-crf', '42',
+            '-pix_fmt', 'gray16',
+        ]
+    },
+    "vhigh": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-c:v', 'libx265',
+            '-preset', 'slow',
+            '-crf', '28',
             '-pix_fmt', 'gray16',
         ]
     },
@@ -381,7 +365,7 @@ c_params = {
             '-pix_fmt', 'gray16',
         ]
     },
-    "normal": {
+    "avg": {
         "bit_count": 16,
         "ffmpeg_options": [
             '-c:v', 'libx265',
@@ -399,7 +383,7 @@ c_params = {
             '-pix_fmt', 'gray16',
         ]
     },
-    "verylow": {
+    "vlow": {
         "bit_count": 16,
         "ffmpeg_options": [
             '-c:v', 'libx265',
@@ -408,7 +392,16 @@ c_params = {
             '-pix_fmt', 'gray16',
         ]
     },
-    "losslessJP2K": {
+    "JP2K": {
+        "bit_count": 16,
+        "ffmpeg_options": [
+            '-map', '0',
+            '-c:v', 'libopenjpeg',
+            '-compression_level', '5',
+            '-c:a', 'copy',
+        ]
+    },
+    "llJP2K": {
         "bit_count": 16,
         "ffmpeg_options": [
             '-map', '0',
@@ -420,45 +413,76 @@ c_params = {
 
 
 
-#dataset_path = "/Users/filippi_j/data/2023/prunelli/prunelli15020200809_l0_UVWTKE5000063000.nc"
-#ds = xr.open_dataset(dataset_path)
+dataset_path = "data/V_prunelli_fire.nc"
+ds = xr.open_dataset(dataset_path)
+print(ds)
 #U = np.sqrt(ds.U.data**2+ds.V.data**2+ds.W.data**2)
+V =  ds.V.data
 
-in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
-U = video_to_array(in_path)
-
+#in_path = 'video_min-6.076788168243806_max5.021517778572543_fc1301.mp4'
+#U = video_to_array(in_path)
 result = {}
+
+
 for key in list(c_params.keys())[::1]:
-    os.makedirs('test', exist_ok=True)
-    shutil.rmtree('test')
-    compressed_path = array_to_video(U,'test', c_params[key])
-    U_unpacked= video_to_array(compressed_path)            
-    error_mean,error_max,error_rel_max = check_error_compression(U,U_unpacked,plot=False)
-    np_size = U.nbytes
+    testDir = f"{key}_output"
+    os.makedirs(testDir, exist_ok=True)
+    shutil.rmtree(testDir)
+    compressed_path = array_to_video(V,testDir, c_params[key])
+    V_unpacked= video_to_array(compressed_path)
+    midFrame = int(np.shape(V_unpacked)[0]/2)
+
+    error_mean,error_max,error_rel_max = check_error_compression(V,V_unpacked,plot=key)
+    np_size = V.nbytes
     video_size = get_file_size(compressed_path)
-    raw_byte_size =get_file_size('test/temp_frame.bin')
-    result[key] = error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size
+    raw_byte_size =get_file_size(f"{testDir}/temp_frame.bin")
+    result[key] = {}
+    result[key]["Errors"] = error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size
+
+check_grib_nc = True
+if check_grib_nc:
+    array_to_fgrib(V,"gribAEC.grib")
+    xr.DataArray(V, dims=["time", "nj", "ni"], name='V') \
+  .to_dataset(name='V') \
+  .to_netcdf('V_compressed_fp32.nc', encoding={'V': {'zlib': True,
+                                                      'complevel': 9,
+                                                      'shuffle': True,
+                                                      'dtype': 'f4'}})
+
+    xr.DataArray(V, dims=["time", "nj", "ni"], name='V') \
+  .to_dataset(name='V') \
+  .to_netcdf('V_uncompressed_fp32.nc', encoding={'V': {'dtype': 'f4'}})
+    grib_size =  get_file_size("gribAEC.grib")
+    netcdfz_size = get_file_size('V_compressed_fp32.nc')
+    netcdfu_size = get_file_size('V_uncompressed_fp32.nc')
     
+    np_size = V.nbytes
+    print(f"Taille grib {np_size/grib_size:.2f}X : {grib_size}")
+    print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size:.2f}X : {netcdfz_size}")
+    result["GribAEC"] = {}
+    result["GribAEC"]["Errors"] = 0,0,0, netcdfu_size,grib_size,np_size
+    result["NCZip"] = {}
+    result["NCZip"]["Errors"] = 0,0,0, netcdfu_size,netcdfz_size,np_size
+    result["NCU"] = {}
+    result["NCU"]["Errors"] = 0,0,0, netcdfu_size,netcdfu_size,np_size
+
 for key in result.keys():
-    error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size =result[key] 
+    error_mean,error_max,error_rel_max, np_size,video_size,raw_byte_size =result[key]["Errors"] 
     
     print(f"{key} REPORT")
     print(f"{key} Erreur moy: {error_mean:.5f}, max: {error_max:.5f}, relMax {error_rel_max:.5f}")
     print(f"{key} Taille du tableau NumPy original {np_size/np_size:.2f}X : {np_size} octets ")
     print(f"{key} Taille du fichier vidéo {np_size/video_size:.2f}X : {video_size} octets ")
     print(f"{key} Taille brute à 2Bytes par valeur {np_size/raw_byte_size:.2f}X : {raw_byte_size}")
+    print(f"{key} Taux de compression effectif : {raw_byte_size/video_size:.2f}")
 
 plot_results(result)
 
-check_grib_nc = False
-if check_grib_nc:
-    array_to_fgrib(U,"gribAEC.grib")
-    xr.DataArray(U, dims=["time", "nj", "ni"], name='U').to_dataset(name='U').to_netcdf('U_compressed_fp32.nc', encoding={'U': {'zlib': True, 'dtype': 'f4'}})    
-    grib_size =  get_file_size("gribAEC.grib")
-    netcdfz_size = get_file_size('U_compressed_fp32.nc')
-    print(f"Taille grib {np_size/grib_size:.2f}X : {grib_size}")
-    print(f"Taille netcdf fp32 zlib {np_size/netcdfz_size:.2f}X : {netcdfz_size}")
 
 
+#to show motion vectors : 
+#ffmpeg -i input.mp4 -vf "scale=1280:1280" -an output.mp4
+#ffmpeg -flags2 +export_mvs -i output.mp4 -vf "split[src],codecview=mv=pf+bf+bb[vex],[vex][src]blend=all_mode=difference128,eq=contrast=7:brightness=-1:gamma=1.5" -c:v libx264 vectors.mp4
+#ffmpeg -flags2 +export_mvs -i output.mp4 -vf "split[src],codecview=mv=pf+bf+bb[vex],[vex][src]blend=all_mode=difference128,eq=contrast=7:brightness=0:gamma=1.2" -c:v libx264 vectors.mp4
 
 
